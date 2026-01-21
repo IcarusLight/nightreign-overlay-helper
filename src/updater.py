@@ -90,6 +90,10 @@ class Updater(QObject):
         self.map_detect_enabled: bool = True
         self.map_region: tuple[int] = None
         self.current_is_full_map: bool = False
+        self.full_map_stable_count: int = 0
+        self.non_full_map_stable_count: int = 0
+        self.full_map_stable_required: int = 2
+        self.non_full_map_stable_required: int = 3
         self.do_match_map_pattern_flag: DoMatchMapPatternFlag = DoMatchMapPatternFlag.TRUE
         self.map_overlay_visible: bool = False
         self.last_map_pattern_match_time: float = 0.0
@@ -345,14 +349,20 @@ class Updater(QObject):
         is_full_map = result.map_detect_result.is_full_map
         map_img = result.map_detect_result.img
         if is_full_map is not None:
-            if is_full_map and not self.current_is_full_map:
-                info("Current map changed to full map.")
-                self.current_is_full_map = True
-                self.show_map_overlay()
-            if not is_full_map and self.current_is_full_map:
-                info("Current map changed to non-full map.")
-                self.current_is_full_map = False
-                self.hide_map_overlay()
+            if is_full_map:
+                self.full_map_stable_count += 1
+                self.non_full_map_stable_count = 0
+                if not self.current_is_full_map and self.full_map_stable_count >= self.full_map_stable_required:
+                    info("Current map changed to full map.")
+                    self.current_is_full_map = True
+                    self.show_map_overlay()
+            else:
+                self.non_full_map_stable_count += 1
+                self.full_map_stable_count = 0
+                if self.current_is_full_map and self.non_full_map_stable_count >= self.non_full_map_stable_required:
+                    info("Current map changed to non-full map.")
+                    self.current_is_full_map = False
+                    self.hide_map_overlay()
 
         self.update_overlay_match_map_pattern_text()
         if self.get_time() - self.last_map_pattern_match_time > Config.get().map_pattern_match_interval:
@@ -363,7 +373,9 @@ class Updater(QObject):
         if self.do_match_map_pattern_flag == DoMatchMapPatternFlag.PREPARE:
             # 隐藏信息显示，等待下一次更新进行识别
             self.do_match_map_pattern_flag = DoMatchMapPatternFlag.TRUE
-            self.update_map_overlay_images(None)
+            self.update_map_overlay_ui_state_signal.emit(MapOverlayUIState(
+                map_pattern_matching=True,
+            ))
             info("Hide overlay and prepared to detect map pattern.")
 
         elif self.do_match_map_pattern_flag == DoMatchMapPatternFlag.TRUE and is_full_map:
